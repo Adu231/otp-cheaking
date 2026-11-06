@@ -1,0 +1,31 @@
+name: android_gateway
+description: In-house Android SMS Gateway service client for SMSGate OTP Lab
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: '>=3.10.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # HTTP client for connecting and polling Node.js backend
+  http: ^1.2.0
+  # WebSocket client for real-time OTP dispatch events
+  web_socket_channel: ^3.0.0
+  # Persistent key-value storage for backend URL and device settings
+  shared_preferences: ^2.2.3
+  # Runtime permission management for SMS and Phone State
+  permission_handler: ^11.3.1
+  # Date and time formatting
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
