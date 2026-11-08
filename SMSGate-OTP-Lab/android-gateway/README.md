@@ -11,7 +11,8 @@ This replaces reliance on third-party SMS applications, giving full control over
 ```
                       +-----------------------------+
                       |   Node.js Express Backend   |
-                      |    (http://<ip>:5000)       |
+                      | (https://otp-cheaking-1...  |
+                      |         onrender.com)       |
                       +--------------+--------------+
                                      ^
                 HTTP Polling /       | Delivery Status
@@ -59,7 +60,7 @@ This replaces reliance on third-party SMS applications, giving full control over
      - Battery Optimization Exemption: Keeps the gateway alive without being killed by Android Doze.
 
 4. **Configurable Backend Synchronization**:
-   - Easily set backend server URL (e.g. `http://10.0.2.2:5000` for Android emulator or your PC's LAN IP `http://192.168.1.x:5000` for physical phone).
+   - Pre-configured to target our live Render backend (`https://otp-cheaking-1.onrender.com`), or customizable to a local PC server.
    - Configurable dispatch polling interval (2s - 30s).
    - Optional gateway device secret authentication token.
 
@@ -158,6 +159,6 @@ When ready, add these two simple endpoints to your Node.js backend:
    ```
 4. On the app home screen:
    - Tap **Grant** on the permission banner.
-   - Tap the top-right **Settings** icon to set your PC's IP address (e.g. `http://192.168.1.100:5000`).
+   - The app defaults to our live backend: `https://otp-cheaking-1.onrender.com`.
    - Toggle the **Gateway Dispatcher** switch to ON.
 

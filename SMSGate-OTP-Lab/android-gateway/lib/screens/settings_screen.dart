@@ -84,7 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'URL where our Node.js backend is running. For Android Emulator use 10.0.2.2, for physical phone use your PC\'s Wi-Fi IP (e.g. 192.168.1.x:5000).',
+                    'URL where our Node.js backend is running. Pre-configured with the live backend at https://otp-cheaking-1.onrender.com.',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                   const SizedBox(height: 12),
@@ -92,7 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller: _urlController,
                     decoration: const InputDecoration(
                       labelText: 'Server Base URL',
-                      hintText: 'http://192.168.1.100:5000',
+                      hintText: 'https://otp-cheaking-1.onrender.com',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.dns_rounded),
                     ),
@@ -122,7 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.between,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
                         'Dispatch Polling Interval',

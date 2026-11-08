@@ -5,6 +5,7 @@ import '../models/sms_message.dart';
 import '../services/backend_sync_service.dart';
 import '../services/permission_service.dart';
 import '../services/sms_dispatcher_service.dart';
+import '../services/sms_storage_service.dart';
 import '../widgets/sms_log_tile.dart';
 import 'settings_screen.dart';
 
@@ -12,12 +13,14 @@ class HomeScreen extends StatefulWidget {
   final BackendSyncService syncService;
   final PermissionService permissionService;
   final SmsDispatcherService dispatcherService;
+  final SmsStorageService? storageService;
 
   const HomeScreen({
     super.key,
     required this.syncService,
     required this.permissionService,
     required this.dispatcherService,
+    this.storageService,
   });
 
   @override
@@ -39,6 +42,14 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkPermissions();
     _loadSimCards();
 
+    widget.storageService?.loadHistory().then((history) {
+      if (!mounted) return;
+      setState(() {
+        _logs.addAll(history);
+        _recalculateStats();
+      });
+    });
+
     widget.syncService.onConnectionStatusChanged = (connected, message) {
       if (!mounted) return;
       setState(() {
@@ -49,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     widget.syncService.onMessageDispatched = (message) {
       if (!mounted) return;
+      widget.storageService?.saveOrUpdateMessage(message);
       setState(() {
         final existingIndex = _logs.indexWhere((m) => m.id == message.id);
         if (existingIndex >= 0) {
@@ -262,7 +274,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.between,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -326,7 +338,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Activity Log Header
             Row(
-              mainAxisAlignment: MainAxisAlignment.between,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
                   'Recent SMS Activity',
@@ -334,7 +346,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 if (_logs.isNotEmpty)
                   TextButton(
-                    onPressed: () => setState(() => _logs.clear()),
+                    onPressed: () {
+                      widget.storageService?.clearHistory();
+                      setState(() => _logs.clear());
+                    },
                     child: const Text('Clear', style: TextStyle(fontSize: 12)),
                   ),
               ],

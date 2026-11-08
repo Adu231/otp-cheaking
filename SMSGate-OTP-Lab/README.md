@@ -66,20 +66,23 @@ SMSGate-OTP-Lab/
 │   │   │   └── smsgate.js
 │   │   ├── controllers/
 │   │   │   ├── authController.js
-│   │   │   └── otpController.js
+│   │   │   ├── otpController.js
+│   │   │   └── gatewayController.js
 │   │   ├── models/
 │   │   │   ├── User.js
 │   │   │   ├── OTPRequest.js
 │   │   │   └── SMSLog.js
 │   │   ├── routes/
 │   │   │   ├── authRoutes.js
-│   │   │   └── otpRoutes.js
+│   │   │   ├── otpRoutes.js
+│   │   │   └── gatewayRoutes.js
 │   │   ├── services/
 │   │   │   ├── smsGateService.js
 │   │   │   └── otpService.js
 │   │   ├── middleware/
 │   │   │   ├── authMiddleware.js
-│   │   │   └── rateLimiter.js
+│   │   │   ├── rateLimiter.js
+│   │   │   └── gatewayAuth.js
 │   │   ├── utils/
 │   │   │   ├── generateOTP.js
 │   │   │   └── responseHandler.js
@@ -87,6 +90,17 @@ SMSGate-OTP-Lab/
 │   │   └── server.js
 │   ├── .env.example
 │   └── package.json
+│
+├── android-gateway/                     # In-House Flutter Android Gateway
+│   ├── android/
+│   ├── lib/
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── services/
+│   │   ├── screens/
+│   │   └── main.dart
+│   ├── pubspec.yaml
+│   └── README.md
 │
 ├── README.md
 └── .gitignore
@@ -231,6 +245,16 @@ npm run dev
 ```
 
 *Vite will start the client on `http://localhost:5173`.*
+
+### Terminal 3 - In-House Android Gateway (Optional - when using our Flutter app)
+
+```bash
+cd SMSGate-OTP-Lab/android-gateway
+flutter pub get
+flutter run
+```
+
+*Connect your Android phone with an active SIM via USB. Turn the Gateway switch ON to automatically pick up and dispatch queued OTP messages via SIM.*
 
 ---
 

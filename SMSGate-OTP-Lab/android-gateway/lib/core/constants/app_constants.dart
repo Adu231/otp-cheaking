@@ -12,8 +12,8 @@ class AppConstants {
   static const String keyAutoStartService = 'auto_start_service';
 
   // Default configuration values
-  // Use http://10.0.2.2:5000 for Android Emulator, or local machine LAN IP for physical device
-  static const String defaultBackendUrl = 'http://10.0.2.2:5000';
+  // Live backend hosted on Render
+  static const String defaultBackendUrl = 'https://otp-cheaking-1.onrender.com';
   static const int defaultPollingIntervalSeconds = 5;
   static const int defaultSimSlot = 0; // SIM 1
 }

@@ -9,6 +9,9 @@ const smsgateConfig = require('./config/smsgate');
 
 const app = express();
 
+// Trust reverse proxy (e.g. Render) for secure client IP detection in express-rate-limit
+app.set('trust proxy', 1);
+
 // 1. CORS Configuration
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
 app.use(
