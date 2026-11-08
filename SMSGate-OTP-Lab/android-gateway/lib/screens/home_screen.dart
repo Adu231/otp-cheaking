@@ -29,6 +29,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _hasPermissions = false;
+  bool _isBatteryOptimizationIgnored = true;
   bool _isConnected = false;
   String _statusMessage = 'Service idle';
 
@@ -41,6 +42,12 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _checkPermissions();
     _loadSimCards();
+    _checkBatteryOptimization();
+
+    // Check if background service is already running on device
+    widget.syncService.refreshStatus().then((_) {
+      if (mounted) setState(() {});
+    });
 
     widget.storageService?.loadHistory().then((history) {
       if (!mounted) return;
@@ -108,6 +115,14 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _checkBatteryOptimization() async {
+    final ignored = await widget.dispatcherService.isBatteryOptimizationIgnored();
+    if (!mounted) return;
+    setState(() {
+      _isBatteryOptimizationIgnored = ignored;
+    });
+  }
+
   Future<void> _requestPermissions() async {
     await widget.permissionService.requestAllPermissions();
     await _checkPermissions();
@@ -122,15 +137,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _toggleService(bool enable) {
+  Future<void> _toggleService(bool enable) async {
     if (enable) {
       if (!_hasPermissions) {
-        _requestPermissions();
-        return;
+        await _requestPermissions();
+        if (!_hasPermissions) return;
       }
-      widget.syncService.startSync();
+      await widget.syncService.startSync();
     } else {
-      widget.syncService.stopSync();
+      await widget.syncService.stopSync();
     }
     setState(() {});
   }
@@ -146,6 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     _loadSimCards();
+    widget.syncService.refreshStatus();
     setState(() {});
   }
 
@@ -240,6 +256,8 @@ class _HomeScreenState extends State<HomeScreen> {
         onRefresh: () async {
           await _checkPermissions();
           await _loadSimCards();
+          await _checkBatteryOptimization();
+          await widget.syncService.refreshStatus();
         },
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -278,6 +296,43 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
+            // Battery Optimization Banner (if active)
+            if (!_isBatteryOptimizationIgnored)
+              Card(
+                color: const Color(0xFFEFF6FF),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Color(0xFFBFDBFE)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.battery_alert_rounded, color: AppTheme.primaryColor),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Disable battery optimization to allow persistent 24/7 background operation.',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF1E40AF)),
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () async {
+                          await widget.dispatcherService.requestIgnoreBatteryOptimizations();
+                          await _checkBatteryOptimization();
+                        },
+                        child: const Text('Exempt'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
             // Service Master Switch Card
             Card(
               child: Padding(
@@ -291,9 +346,31 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Gateway Dispatcher',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                              Row(
+                                children: [
+                                  const Text(
+                                    'Gateway Service',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isRunning
+                                          ? AppTheme.successColor.withOpacity(0.15)
+                                          : Colors.grey.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      isRunning ? 'RUNNING' : 'STOPPED',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: isRunning ? AppTheme.successColor : AppTheme.textMuted,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -301,7 +378,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: isRunning
-                                      ? (_isConnected ? AppTheme.successColor : AppTheme.warningColor)
+                                      ? (_statusMessage.contains('401')
+                                          ? AppTheme.errorColor
+                                          : (_isConnected ? AppTheme.successColor : AppTheme.warningColor))
                                       : AppTheme.textMuted,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -316,6 +395,25 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
+                    if (_statusMessage.contains('401')) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, size: 14, color: AppTheme.errorColor),
+                          const SizedBox(width: 4),
+                          const Expanded(
+                            child: Text(
+                              'Device secret token does not match backend GATEWAY_SECRET_TOKEN.',
+                              style: TextStyle(fontSize: 11, color: AppTheme.errorColor),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _openSettings,
+                            child: const Text('Update Token', style: TextStyle(fontSize: 11)),
+                          ),
+                        ],
+                      ),
+                    ],
                     const Divider(height: 24),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

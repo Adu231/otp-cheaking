@@ -15,6 +15,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     
     <!-- Android 13+ Notification permission for foreground service status -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -52,10 +53,22 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Boot Receiver to restart gateway service after phone reboot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
+
         <!-- Metadata required for Flutter engine -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 </manifest>
-

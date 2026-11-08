@@ -10,6 +10,7 @@ class AppConstants {
   static const String keyPollingInterval = 'polling_interval_seconds';
   static const String keyDefaultSimSlot = 'default_sim_slot';
   static const String keyAutoStartService = 'auto_start_service';
+  static const String keyServiceEnabled = 'gateway_service_enabled';
 
   // Default configuration values
   // Live backend hosted on Render
@@ -18,4 +19,3 @@ class AppConstants {
   static const int defaultPollingIntervalSeconds = 5;
   static const int defaultSimSlot = 0; // SIM 1
 }
-

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants/app_constants.dart';
 import '../core/theme/app_theme.dart';
 import '../services/backend_sync_service.dart';
@@ -29,9 +30,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: widget.syncService.backendUrl);
-    _tokenController = TextEditingController(text: widget.syncService.deviceToken);
+
+    // Initial value from in-memory service
+    final initialToken = widget.syncService.deviceToken.isNotEmpty
+        ? widget.syncService.deviceToken
+        : AppConstants.defaultDeviceToken;
+    _tokenController = TextEditingController(text: initialToken);
+
     _selectedSimSlot = widget.syncService.simSlot;
     _pollingInterval = widget.syncService.pollingIntervalSeconds.toDouble();
+
+    // Redundant verification directly from disk SharedPreferences
+    _loadFromDisk();
+  }
+
+  Future<void> _loadFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final diskUrl = prefs.getString(AppConstants.keyBackendUrl);
+      final diskToken = prefs.getString(AppConstants.keyDeviceToken);
+      final diskSlot = prefs.getInt(AppConstants.keyDefaultSimSlot);
+      final diskInterval = prefs.getInt(AppConstants.keyPollingInterval);
+
+      if (mounted) {
+        setState(() {
+          if (diskUrl != null && diskUrl.isNotEmpty) {
+            _urlController.text = BackendSyncService.normalizeBackendUrl(diskUrl);
+          }
+          if (diskToken != null && diskToken.isNotEmpty) {
+            _tokenController.text = diskToken;
+          }
+          if (diskSlot != null) {
+            _selectedSimSlot = diskSlot;
+          }
+          if (diskInterval != null && diskInterval > 0) {
+            _pollingInterval = diskInterval.toDouble();
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -44,16 +81,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
 
+    final inputUrl = _urlController.text.trim();
     final inputToken = _tokenController.text.trim();
-    // Prevent accidental wipe of valid token
-    final tokenToSave = inputToken.isNotEmpty
-        ? inputToken
-        : (widget.syncService.deviceToken.isNotEmpty
-            ? widget.syncService.deviceToken
-            : AppConstants.defaultDeviceToken);
+
+    // Guard: Never overwrite a valid saved token with an empty value
+    String tokenToSave = inputToken;
+    if (tokenToSave.isEmpty) {
+      if (widget.syncService.deviceToken.isNotEmpty) {
+        tokenToSave = widget.syncService.deviceToken;
+      } else {
+        tokenToSave = AppConstants.defaultDeviceToken;
+      }
+      _tokenController.text = tokenToSave;
+    }
+
+    final normalizedUrl = BackendSyncService.normalizeBackendUrl(
+      inputUrl.isNotEmpty ? inputUrl : AppConstants.defaultBackendUrl,
+    );
+    _urlController.text = normalizedUrl;
 
     await widget.syncService.updateConfig(
-      backendUrl: _urlController.text.trim(),
+      backendUrl: normalizedUrl,
       deviceToken: tokenToSave,
       simSlot: _selectedSimSlot,
       pollingIntervalSeconds: _pollingInterval.toInt(),
@@ -95,7 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Target URL of our live Node.js Express backend deployment.',
+                    'Target URL of our live Node.js Express backend deployment (e.g. Render).',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                   const SizedBox(height: 12),
@@ -116,7 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Must match GATEWAY_SECRET_TOKEN in backend .env to authorize pending task polls and status callbacks.',
+                    'Must match GATEWAY_SECRET_TOKEN in backend environment variables. Sent in x-gateway-token header.',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                   const SizedBox(height: 12),
@@ -165,7 +213,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'How frequently the gateway polls the backend for pending OTP SMS jobs.',
+                    'How frequently the background service polls the backend for pending OTP SMS jobs.',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                   Slider(

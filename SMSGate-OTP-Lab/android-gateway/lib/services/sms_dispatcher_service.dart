@@ -4,11 +4,15 @@ import '../core/constants/app_constants.dart';
 import '../models/sms_message.dart';
 
 typedef SmsStatusCallback = void Function(String messageId, SmsStatus status, String? errorMessage);
+typedef NativeConnectionCallback = void Function(bool isConnected, String message);
+typedef NativeMessageCallback = void Function(Map<String, dynamic> taskData);
 
 class SmsDispatcherService {
   static const MethodChannel _channel = MethodChannel(AppConstants.smsMethodChannel);
 
   SmsStatusCallback? onStatusChanged;
+  NativeConnectionCallback? onConnectionChanged;
+  NativeMessageCallback? onMessageDispatched;
 
   SmsDispatcherService() {
     _channel.setMethodCallHandler(_handleNativeMethodCall);
@@ -47,6 +51,14 @@ class SmsDispatcherService {
       }
 
       onStatusChanged?.call(messageId, status, errorMessage);
+    } else if (call.method == 'onConnectionStatusChanged') {
+      final Map<dynamic, dynamic> args = call.arguments as Map<dynamic, dynamic>;
+      final bool isConnected = args['isConnected'] as bool? ?? false;
+      final String message = args['message']?.toString() ?? '';
+      onConnectionChanged?.call(isConnected, message);
+    } else if (call.method == 'onMessageDispatched') {
+      final Map<dynamic, dynamic> args = call.arguments as Map<dynamic, dynamic>;
+      onMessageDispatched?.call(Map<String, dynamic>.from(args));
     }
   }
 
@@ -95,6 +107,65 @@ class SmsDispatcherService {
     }
   }
 
+  /// Query native service status
+  Future<bool> isServiceRunning() async {
+    try {
+      final bool? running = await _channel.invokeMethod<bool>('isServiceRunning');
+      return running ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Query native connection status
+  Future<Map<String, dynamic>> getConnectionStatus() async {
+    try {
+      final Map<dynamic, dynamic>? res =
+          await _channel.invokeMethod<Map<dynamic, dynamic>>('getConnectionStatus');
+      if (res != null) {
+        return Map<String, dynamic>.from(res);
+      }
+    } catch (_) {}
+    return {'isConnected': false, 'message': 'Unknown'};
+  }
+
+  /// Sync configuration to native Android SharedPreferences
+  Future<void> syncNativeConfig({
+    required String backendUrl,
+    required String deviceToken,
+    required int pollingInterval,
+    required int simSlot,
+  }) async {
+    try {
+      await _channel.invokeMethod('syncNativeConfig', {
+        'backendUrl': backendUrl,
+        'deviceToken': deviceToken,
+        'pollingInterval': pollingInterval,
+        'simSlot': simSlot,
+      });
+    } catch (_) {}
+  }
+
+  /// Check whether battery optimization is ignored for this app
+  Future<bool> isBatteryOptimizationIgnored() async {
+    try {
+      final bool? ignored = await _channel.invokeMethod<bool>('isBatteryOptimizationIgnored');
+      return ignored ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Launch system dialog to request battery optimization ignore
+  Future<bool> requestIgnoreBatteryOptimizations() async {
+    try {
+      final bool? res = await _channel.invokeMethod<bool>('requestIgnoreBatteryOptimizations');
+      return res ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Retrieve active SIM cards present in device
   Future<List<Map<String, dynamic>>> getActiveSimCards() async {
     try {
@@ -136,4 +207,3 @@ class SmsDispatcherService {
     }
   }
 }
-

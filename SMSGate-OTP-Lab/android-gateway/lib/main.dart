@@ -7,7 +7,7 @@ import 'services/permission_service.dart';
 import 'services/sms_dispatcher_service.dart';
 import 'services/sms_storage_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Instantiate singleton services
@@ -15,6 +15,9 @@ void main() {
   final dispatcherService = SmsDispatcherService();
   final syncService = BackendSyncService(smsDispatcher: dispatcherService);
   final storageService = SmsStorageService();
+
+  // Guarantee persistent settings are fully loaded before UI mounts
+  await syncService.init();
 
   runApp(AndroidGatewayApp(
     permissionService: permissionService,
@@ -53,4 +56,3 @@ class AndroidGatewayApp extends StatelessWidget {
     );
   }
 }
-

@@ -8,7 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.telephony.SmsManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
@@ -33,6 +36,7 @@ class MainActivity : FlutterActivity() {
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
         registerSmsReceivers()
+        attachServiceListener()
 
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -72,8 +76,20 @@ class MainActivity : FlutterActivity() {
                     val isCapable = telephonyManager?.isSmsCapable ?: true
                     result.success(isCapable)
                 }
+                "isServiceRunning" -> {
+                    result.success(GatewayForegroundService.isRunning)
+                }
+                "getConnectionStatus" -> {
+                    result.success(
+                        mapOf(
+                            "isConnected" to GatewayForegroundService.isConnected,
+                            "message" to GatewayForegroundService.lastConnectionStatus
+                        )
+                    )
+                }
                 "startForegroundService" -> {
                     try {
+                        saveServiceEnabled(true)
                         val serviceIntent = Intent(this, GatewayForegroundService::class.java).apply {
                             action = GatewayForegroundService.ACTION_START
                         }
@@ -89,6 +105,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "stopForegroundService" -> {
                     try {
+                        saveServiceEnabled(false)
                         val serviceIntent = Intent(this, GatewayForegroundService::class.java).apply {
                             action = GatewayForegroundService.ACTION_STOP
                         }
@@ -98,7 +115,87 @@ class MainActivity : FlutterActivity() {
                         result.error("SERVICE_STOP_FAILED", e.localizedMessage, null)
                     }
                 }
+                "syncNativeConfig" -> {
+                    val backendUrl = call.argument<String>("backendUrl")
+                    val deviceToken = call.argument<String>("deviceToken")
+                    val pollingInterval = call.argument<Int>("pollingInterval")
+                    val simSlot = call.argument<Int>("simSlot")
+
+                    val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                    val editor = prefs.edit()
+                    if (backendUrl != null) editor.putString("flutter.backend_server_url", backendUrl)
+                    if (deviceToken != null && deviceToken.isNotEmpty()) editor.putString("flutter.gateway_device_token", deviceToken)
+                    if (pollingInterval != null) editor.putInt("flutter.polling_interval_seconds", pollingInterval)
+                    if (simSlot != null) editor.putInt("flutter.default_sim_slot", simSlot)
+                    editor.apply()
+
+                    result.success(true)
+                }
+                "isBatteryOptimizationIgnored" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                        val isIgnored = powerManager?.isIgnoringBatteryOptimizations(packageName) ?: true
+                        result.success(isIgnored)
+                    } else {
+                        result.success(true)
+                    }
+                }
+                "requestIgnoreBatteryOptimizations" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("BATTERY_OPT_ERROR", e.localizedMessage, null)
+                        }
+                    } else {
+                        result.success(true)
+                    }
+                }
                 else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun saveServiceEnabled(enabled: Boolean) {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("flutter.gateway_service_enabled", enabled).apply()
+    }
+
+    private fun attachServiceListener() {
+        GatewayForegroundService.serviceListener = object : GatewayForegroundService.ServiceListener {
+            override fun onStatusUpdate(messageId: String, status: String, errorMessage: String?) {
+                runOnUiThread {
+                    methodChannel?.invokeMethod(
+                        "onSmsStatusUpdated",
+                        mapOf(
+                            "messageId" to messageId,
+                            "status" to status,
+                            "errorMessage" to errorMessage
+                        )
+                    )
+                }
+            }
+
+            override fun onConnectionChanged(isConnected: Boolean, message: String) {
+                runOnUiThread {
+                    methodChannel?.invokeMethod(
+                        "onConnectionStatusChanged",
+                        mapOf(
+                            "isConnected" to isConnected,
+                            "message" to message
+                        )
+                    )
+                }
+            }
+
+            override fun onMessageDispatched(taskMap: Map<String, Any>) {
+                runOnUiThread {
+                    methodChannel?.invokeMethod("onMessageDispatched", taskMap)
+                }
             }
         }
     }
@@ -158,13 +255,11 @@ class MainActivity : FlutterActivity() {
             try {
                 val subList = subManager?.activeSubscriptionInfoList
                 if (!subList.isNullOrEmpty()) {
-                    // 1. Try exact requested slot index
                     for (info in subList) {
                         if (info.simSlotIndex == simSlot) {
                             return createSmsManagerForSub(info.subscriptionId)
                         }
                     }
-                    // 2. If requested slot has no active SIM, detect active Airtel SIM
                     for (info in subList) {
                         val carrier = info.carrierName?.toString() ?: ""
                         val display = info.displayName?.toString() ?: ""
@@ -172,15 +267,12 @@ class MainActivity : FlutterActivity() {
                             return createSmsManagerForSub(info.subscriptionId)
                         }
                     }
-                    // 3. Fallback to first active SIM subscription
                     val firstActive = subList.firstOrNull()
                     if (firstActive != null) {
                         return createSmsManagerForSub(firstActive.subscriptionId)
                     }
                 }
-            } catch (e: SecurityException) {
-                // If READ_PHONE_STATE permission is missing, fall back to default
-            }
+            } catch (_: SecurityException) {}
         }
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -217,9 +309,7 @@ class MainActivity : FlutterActivity() {
                         )
                     }
                 }
-            } catch (e: SecurityException) {
-                // Permission not yet granted
-            }
+            } catch (_: SecurityException) {}
         }
         return result
     }
@@ -290,9 +380,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        GatewayForegroundService.serviceListener = null
         sentReceiver?.let { unregisterReceiver(it) }
         deliveredReceiver?.let { unregisterReceiver(it) }
+        super.onDestroy()
     }
 }
-
