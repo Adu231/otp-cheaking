@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../core/constants/app_constants.dart';
 import '../models/sms_message.dart';
 
@@ -11,6 +12,22 @@ class SmsDispatcherService {
 
   SmsDispatcherService() {
     _channel.setMethodCallHandler(_handleNativeMethodCall);
+  }
+
+  /// Normalize phone numbers (especially Indian 10-digit formats) to standard E.164
+  static String normalizePhoneNumber(String input) {
+    if (input.isEmpty) return '';
+    final cleaned = input.replaceAll(RegExp(r'[\s\-()]'), '');
+    if (RegExp(r'^[6-9]\d{9}$').hasMatch(cleaned)) {
+      return '+91$cleaned';
+    }
+    if (RegExp(r'^0[6-9]\d{9}$').hasMatch(cleaned)) {
+      return '+91${cleaned.substring(1)}';
+    }
+    if (RegExp(r'^91[6-9]\d{9}$').hasMatch(cleaned)) {
+      return '+$cleaned';
+    }
+    return cleaned;
   }
 
   Future<dynamic> _handleNativeMethodCall(MethodCall call) async {
@@ -40,9 +57,29 @@ class SmsDispatcherService {
     required String messageId,
     int simSlot = 0,
   }) async {
+    final cleanPhone = normalizePhoneNumber(phoneNumber);
+    if (cleanPhone.isEmpty) {
+      onStatusChanged?.call(messageId, SmsStatus.failed, 'Invalid recipient phone number');
+      return false;
+    }
+
+    // Check runtime permission before invoking native layer
+    final smsPermission = await Permission.sms.status;
+    if (!smsPermission.isGranted) {
+      final requested = await Permission.sms.request();
+      if (!requested.isGranted) {
+        onStatusChanged?.call(
+          messageId,
+          SmsStatus.failed,
+          'SEND_SMS permission not granted. Please grant SMS permissions in App Info.',
+        );
+        return false;
+      }
+    }
+
     try {
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('sendSMS', {
-        'phoneNumber': phoneNumber,
+        'phoneNumber': cleanPhone,
         'message': message,
         'messageId': messageId,
         'simSlot': simSlot,

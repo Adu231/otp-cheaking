@@ -1,16 +1,19 @@
 package com.smsgate.android_gateway
 
+import android.Manifest
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.SmsManager
 import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -41,6 +44,11 @@ class MainActivity : FlutterActivity() {
 
                     if (phoneNumber.isNullOrEmpty() || message.isNullOrEmpty()) {
                         result.error("INVALID_ARGUMENTS", "Phone number and message cannot be empty", null)
+                        return@setMethodCallHandler
+                    }
+
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                        result.error("PERMISSION_DENIED", "SEND_SMS permission is not granted by user", null)
                         return@setMethodCallHandler
                     }
 
@@ -95,7 +103,22 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun normalizePhoneNumber(rawNumber: String): String {
+        val cleaned = rawNumber.replace("[\\s\\-()]".toRegex(), "")
+        if (cleaned.matches("^[6-9]\\d{9}$".toRegex())) {
+            return "+91$cleaned"
+        }
+        if (cleaned.matches("^0[6-9]\\d{9}$".toRegex())) {
+            return "+91${cleaned.substring(1)}"
+        }
+        if (cleaned.matches("^91[6-9]\\d{9}$".toRegex())) {
+            return "+$cleaned"
+        }
+        return cleaned
+    }
+
     private fun dispatchSMS(phoneNumber: String, message: String, messageId: String, simSlot: Int) {
+        val targetPhone = normalizePhoneNumber(phoneNumber)
         val smsManager = getSmsManagerForSlot(simSlot)
 
         val sentIntent = Intent(ACTION_SMS_SENT).apply {
@@ -122,9 +145,9 @@ class MainActivity : FlutterActivity() {
                 sentIntents.add(sentPI)
                 deliveredIntents.add(deliveredPI)
             }
-            smsManager.sendMultipartTextMessage(phoneNumber, null, parts, sentIntents, deliveredIntents)
+            smsManager.sendMultipartTextMessage(targetPhone, null, parts, sentIntents, deliveredIntents)
         } else {
-            smsManager.sendTextMessage(phoneNumber, null, message, sentPI, deliveredPI)
+            smsManager.sendTextMessage(targetPhone, null, message, sentPI, deliveredPI)
         }
     }
 
@@ -135,14 +158,24 @@ class MainActivity : FlutterActivity() {
             try {
                 val subList = subManager?.activeSubscriptionInfoList
                 if (!subList.isNullOrEmpty()) {
+                    // 1. Try exact requested slot index
                     for (info in subList) {
                         if (info.simSlotIndex == simSlot) {
-                            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                getSystemService(SmsManager::class.java).createForSubscriptionId(info.subscriptionId)
-                            } else {
-                                SmsManager.getSmsManagerForSubscriptionId(info.subscriptionId)
-                            }
+                            return createSmsManagerForSub(info.subscriptionId)
                         }
+                    }
+                    // 2. If requested slot has no active SIM, detect active Airtel SIM
+                    for (info in subList) {
+                        val carrier = info.carrierName?.toString() ?: ""
+                        val display = info.displayName?.toString() ?: ""
+                        if (carrier.contains("airtel", ignoreCase = true) || display.contains("airtel", ignoreCase = true)) {
+                            return createSmsManagerForSub(info.subscriptionId)
+                        }
+                    }
+                    // 3. Fallback to first active SIM subscription
+                    val firstActive = subList.firstOrNull()
+                    if (firstActive != null) {
+                        return createSmsManagerForSub(firstActive.subscriptionId)
                     }
                 }
             } catch (e: SecurityException) {
@@ -154,6 +187,15 @@ class MainActivity : FlutterActivity() {
             getSystemService(SmsManager::class.java)
         } else {
             SmsManager.getDefault()
+        }
+    }
+
+    private fun createSmsManagerForSub(subId: Int): SmsManager {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(SmsManager::class.java).createForSubscriptionId(subId)
+        } else {
+            @Suppress("DEPRECATION")
+            SmsManager.getSmsManagerForSubscriptionId(subId)
         }
     }
 
@@ -196,19 +238,19 @@ class MainActivity : FlutterActivity() {
                     }
                     SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
                         status = "Failed"
-                        errorMessage = "Generic network failure or carrier block"
+                        errorMessage = "Generic network failure or carrier block (verify Airtel SMS balance and active SIM slot)"
                     }
                     SmsManager.RESULT_ERROR_NO_SERVICE -> {
                         status = "Failed"
-                        errorMessage = "No cellular network service available"
+                        errorMessage = "No cellular network service available on SIM"
                     }
                     SmsManager.RESULT_ERROR_NULL_PDU -> {
                         status = "Failed"
-                        errorMessage = "Null PDU"
+                        errorMessage = "Null PDU (format rejected by SMSC)"
                     }
                     SmsManager.RESULT_ERROR_RADIO_OFF -> {
                         status = "Failed"
-                        errorMessage = "Airplane mode is enabled or cellular radio is off"
+                        errorMessage = "Cellular radio is off or Airplane mode is active"
                     }
                     else -> {
                         status = "Failed"

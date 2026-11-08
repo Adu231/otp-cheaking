@@ -64,7 +64,13 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         final existingIndex = _logs.indexWhere((m) => m.id == message.id);
         if (existingIndex >= 0) {
-          _logs[existingIndex] = message;
+          final existing = _logs[existingIndex];
+          _logs[existingIndex] = existing.copyWith(
+            status: message.status,
+            errorMessage: message.errorMessage ?? existing.errorMessage,
+            phoneNumber: message.phoneNumber.isNotEmpty ? message.phoneNumber : existing.phoneNumber,
+            message: message.message.isNotEmpty ? message.message : existing.message,
+          );
         } else {
           _logs.insert(0, message);
         }
@@ -129,6 +135,20 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {});
   }
 
+  void _openSettings() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => SettingsScreen(
+          syncService: widget.syncService,
+          simCards: _simCards,
+        ),
+      ),
+    );
+    _loadSimCards();
+    setState(() {});
+  }
+
   void _showSendTestSmsDialog() {
     final phoneCtrl = TextEditingController();
     final messageCtrl = TextEditingController(text: 'Test OTP verification code: 123456');
@@ -163,21 +183,23 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              final phone = phoneCtrl.text.trim();
+              final rawPhone = phoneCtrl.text.trim();
               final msg = messageCtrl.text.trim();
-              if (phone.isNotEmpty && msg.isNotEmpty) {
+              if (rawPhone.isNotEmpty && msg.isNotEmpty) {
+                final normalizedPhone = SmsDispatcherService.normalizePhoneNumber(rawPhone);
                 final messageId = 'test_${DateTime.now().millisecondsSinceEpoch}';
                 widget.dispatcherService.sendSms(
-                  phoneNumber: phone,
+                  phoneNumber: normalizedPhone,
                   message: msg,
                   messageId: messageId,
                   simSlot: widget.syncService.simSlot,
                 );
                 final testMsg = SmsMessage(
                   id: messageId,
-                  phoneNumber: phone,
+                  phoneNumber: normalizedPhone,
                   message: msg,
                   status: SmsStatus.sending,
+                  simSlot: widget.syncService.simSlot,
                 );
                 setState(() {
                   _logs.insert(0, testMsg);
@@ -210,18 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Gateway Settings',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (ctx) => SettingsScreen(
-                    syncService: widget.syncService,
-                    simCards: _simCards,
-                  ),
-                ),
-              );
-              _loadSimCards();
-            },
+            onPressed: _openSettings,
           ),
         ],
       ),
@@ -276,25 +287,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Gateway Dispatcher',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _statusMessage,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isRunning
-                                    ? (_isConnected ? AppTheme.successColor : AppTheme.warningColor)
-                                    : AppTheme.textMuted,
-                                fontWeight: FontWeight.w500,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Gateway Dispatcher',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 4),
+                              Text(
+                                _statusMessage,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isRunning
+                                      ? (_isConnected ? AppTheme.successColor : AppTheme.warningColor)
+                                      : AppTheme.textMuted,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                         Switch.adaptive(
                           value: isRunning,
@@ -307,15 +320,36 @@ class _HomeScreenState extends State<HomeScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'Target: ${widget.syncService.backendUrl}',
-                          style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                        Expanded(
+                          child: Text(
+                            'Target: ${widget.syncService.backendUrl}',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         if (_simCards.isNotEmpty)
                           Text(
-                            'Active: ${_simCards[0]['carrierName'] ?? 'SIM 1'}',
+                            'SIM: ${_simCards[0]['carrierName'] ?? 'SIM 1'}',
                             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textColor),
                           ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Token: ${widget.syncService.deviceToken.isNotEmpty ? "•••••••• (${widget.syncService.deviceToken.length} chars)" : "Not Configured"}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: widget.syncService.deviceToken.isNotEmpty ? AppTheme.successColor : AppTheme.warningColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          'Poll: ${widget.syncService.pollingIntervalSeconds}s',
+                          style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                        ),
                       ],
                     ),
                   ],
@@ -411,4 +445,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-

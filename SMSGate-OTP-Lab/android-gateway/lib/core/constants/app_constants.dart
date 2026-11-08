@@ -14,6 +14,7 @@ class AppConstants {
   // Default configuration values
   // Live backend hosted on Render
   static const String defaultBackendUrl = 'https://otp-cheaking-1.onrender.com';
+  static const String defaultDeviceToken = 'smsgate_gateway_secret_2026';
   static const int defaultPollingIntervalSeconds = 5;
   static const int defaultSimSlot = 0; // SIM 1
 }

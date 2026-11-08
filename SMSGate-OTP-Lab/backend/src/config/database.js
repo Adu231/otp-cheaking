@@ -21,8 +21,17 @@ const connectDatabase = async () => {
   }
 
   try {
-    const conn = await mongoose.connect(uri);
-    console.log(`[DATABASE] MongoDB Connected: ${conn.connection.host}`);
+    const options = {
+      serverSelectionTimeoutMS: 15000
+    };
+
+    // If MONGODB_URI does not contain an explicit database path, default to 'otp_checking'
+    if (!uri.match(/mongodb(?:\+srv)?:\/\/[^\/]+\/([a-zA-Z0-9_\-]+)/)) {
+      options.dbName = 'otp_checking';
+    }
+
+    const conn = await mongoose.connect(uri, options);
+    console.log(`[DATABASE] MongoDB Connected: ${conn.connection.host} (Database: ${conn.connection.name})`);
   } catch (error) {
     console.error(`[DATABASE ERROR] Failed to connect to MongoDB: ${error.message}`);
     // Do not crash the entire process so users can inspect configuration

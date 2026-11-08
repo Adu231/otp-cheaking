@@ -7,7 +7,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json'
   },
-  timeout: 15000
+  timeout: 35000 // 35s timeout to accommodate Render free-tier cold starts
 });
 
 // Request interceptor: attach JWT bearer token if available

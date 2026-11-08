@@ -23,13 +23,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _selectedSimSlot = 0;
   double _pollingInterval = 5.0;
   bool _isSaving = false;
+  bool _obscureToken = true;
 
   @override
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: widget.syncService.backendUrl);
-    _tokenController = TextEditingController();
+    _tokenController = TextEditingController(text: widget.syncService.deviceToken);
     _selectedSimSlot = widget.syncService.simSlot;
+    _pollingInterval = widget.syncService.pollingIntervalSeconds.toDouble();
   }
 
   @override
@@ -42,9 +44,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSettings() async {
     setState(() => _isSaving = true);
 
+    final inputToken = _tokenController.text.trim();
+    // Prevent accidental wipe of valid token
+    final tokenToSave = inputToken.isNotEmpty
+        ? inputToken
+        : (widget.syncService.deviceToken.isNotEmpty
+            ? widget.syncService.deviceToken
+            : AppConstants.defaultDeviceToken);
+
     await widget.syncService.updateConfig(
       backendUrl: _urlController.text.trim(),
-      deviceToken: _tokenController.text.trim(),
+      deviceToken: tokenToSave,
       simSlot: _selectedSimSlot,
       pollingIntervalSeconds: _pollingInterval.toInt(),
     );
@@ -54,8 +64,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Settings saved successfully'),
+          content: Text('Gateway Secret Token and Settings saved permanently!'),
           backgroundColor: AppTheme.successColor,
+          duration: Duration(seconds: 3),
         ),
       );
       Navigator.pop(context);
@@ -84,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'URL where our Node.js backend is running. Pre-configured with the live backend at https://otp-cheaking-1.onrender.com.',
+                    'Target URL of our live Node.js Express backend deployment.',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                   const SizedBox(height: 12),
@@ -98,14 +109,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     keyboardType: TextInputType.url,
                   ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Gateway Secret Token',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Must match GATEWAY_SECRET_TOKEN in backend .env to authorize pending task polls and status callbacks.',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _tokenController,
-                    decoration: const InputDecoration(
-                      labelText: 'Device Secret Token (Optional)',
-                      hintText: 'Enter secret token if configured',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.key_rounded),
+                    obscureText: _obscureToken,
+                    decoration: InputDecoration(
+                      labelText: 'Secret Token (x-gateway-token)',
+                      hintText: 'smsgate_gateway_secret_2026',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.key_rounded),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureToken ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        ),
+                        tooltip: _obscureToken ? 'Reveal token' : 'Hide token',
+                        onPressed: () => setState(() => _obscureToken = !_obscureToken),
+                      ),
                     ),
                   ),
                 ],
@@ -167,7 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Choose which SIM slot on this phone dispatches the outgoing OTP SMS.',
+                    'Choose which SIM slot on this phone dispatches the outgoing OTP SMS. Airtel SIM is recommended.',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                   const SizedBox(height: 10),
@@ -175,7 +204,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: Text(
                       widget.simCards.isNotEmpty
                           ? 'SIM 1 (${widget.simCards[0]['carrierName'] ?? 'Slot 0'})'
-                          : 'SIM 1 (Default)',
+                          : 'SIM 1 (Default / Airtel)',
                     ),
                     value: 0,
                     groupValue: _selectedSimSlot,
@@ -202,7 +231,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton(
             onPressed: _isSaving ? null : _saveSettings,
             child: _isSaving
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
                 : const Text('Save Gateway Settings'),
           ),
         ],
@@ -210,4 +243,3 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
-
