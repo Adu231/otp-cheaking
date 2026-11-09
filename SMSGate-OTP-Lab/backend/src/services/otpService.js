@@ -49,7 +49,7 @@ class OTPService {
     await otpRecord.save();
 
     // 5. Construct required message text
-    const message = `Your SMSGate OTP Lab verification code is: ${rawOTP}. Valid for 5 minutes. Do not share this code.`;
+    const message = 'Hello, this is a test message from SMS Gateway.';
 
     // 6. Check Provider: In-House Android Gateway vs SMSGate Cloud
     const useInHouseGateway =
