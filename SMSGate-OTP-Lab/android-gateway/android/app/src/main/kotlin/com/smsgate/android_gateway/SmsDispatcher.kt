@@ -142,14 +142,20 @@ object SmsDispatcher {
 
     fun normalizePhoneNumber(rawNumber: String): String {
         val cleaned = rawNumber.replace("[\\s\\-()]".toRegex(), "")
-        if (cleaned.matches("^[6-9]\\d{9}$".toRegex())) {
-            return "+91$cleaned"
-        }
-        if (cleaned.matches("^0[6-9]\\d{9}$".toRegex())) {
-            return "+91${cleaned.substring(1)}"
+        // For domestic Indian mobile numbers, use the clean 10-digit format.
+        // This matches the format used when typing manually in Google Messages and avoids
+        // carrier SMSCs treating '+91' as an international prefix requiring ISMS balance.
+        if (cleaned.matches("^\\+91[6-9]\\d{9}$".toRegex())) {
+            return cleaned.substring(3)
         }
         if (cleaned.matches("^91[6-9]\\d{9}$".toRegex())) {
-            return "+$cleaned"
+            return cleaned.substring(2)
+        }
+        if (cleaned.matches("^0[6-9]\\d{9}$".toRegex())) {
+            return cleaned.substring(1)
+        }
+        if (cleaned.matches("^[6-9]\\d{9}$".toRegex())) {
+            return cleaned
         }
         return cleaned
     }
@@ -328,7 +334,6 @@ object SmsDispatcher {
         try {
             if (totalParts > 1) {
                 val sentIntents = ArrayList<PendingIntent>()
-                val deliveredIntents = ArrayList<PendingIntent>()
 
                 for (i in parts.indices) {
                     val reqCode = requestCounter.incrementAndGet()
@@ -339,19 +344,14 @@ object SmsDispatcher {
                         putExtra("subId", subId)
                         setPackage(context.packageName)
                     }
-                    val deliveredIntent = Intent(ACTION_SMS_DELIVERED).apply {
-                        putExtra("taskId", taskId)
-                        putExtra("partIndex", i)
-                        putExtra("totalParts", totalParts)
-                        putExtra("subId", subId)
-                        setPackage(context.packageName)
-                    }
 
                     sentIntents.add(PendingIntent.getBroadcast(context, reqCode, sentIntent, piFlags))
-                    deliveredIntents.add(PendingIntent.getBroadcast(context, reqCode + 50000, deliveredIntent, piFlags))
                 }
 
-                smsManager.sendMultipartTextMessage(targetPhone, null, parts, sentIntents, deliveredIntents)
+                // Pass null for deliveryIntents: Indian prepaid carriers (Airtel/Jio) do not support
+                // SMS delivery reports on consumer prepaid plans. Requesting delivery reports (TP-SRR=1)
+                // causes the SMSC to drop the SMS in transit. Passing null sends direct standard SMS.
+                smsManager.sendMultipartTextMessage(targetPhone, null, parts, sentIntents, null)
             } else {
                 val reqCode = requestCounter.incrementAndGet()
                 val sentIntent = Intent(ACTION_SMS_SENT).apply {
@@ -361,18 +361,11 @@ object SmsDispatcher {
                     putExtra("subId", subId)
                     setPackage(context.packageName)
                 }
-                val deliveredIntent = Intent(ACTION_SMS_DELIVERED).apply {
-                    putExtra("taskId", taskId)
-                    putExtra("partIndex", 0)
-                    putExtra("totalParts", 1)
-                    putExtra("subId", subId)
-                    setPackage(context.packageName)
-                }
 
                 val sentPI = PendingIntent.getBroadcast(context, reqCode, sentIntent, piFlags)
-                val deliveredPI = PendingIntent.getBroadcast(context, reqCode + 50000, deliveredIntent, piFlags)
 
-                smsManager.sendTextMessage(targetPhone, null, message, sentPI, deliveredPI)
+                // Pass null for deliveredPI to ensure carrier SMSC does not drop the message for TP-SRR
+                smsManager.sendTextMessage(targetPhone, null, message, sentPI, null)
             }
 
             Log.i(TAG, "[DISPATCH-QUEUED] Task $taskId handed to Android Telephony service for SIM $slotIndex")
