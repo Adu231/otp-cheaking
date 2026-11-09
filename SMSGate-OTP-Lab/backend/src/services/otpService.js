@@ -49,7 +49,7 @@ class OTPService {
     await otpRecord.save();
 
     // 5. Construct required message text
-    const message = 'Hello, this is a test message from SMS Gateway.';
+    const message = 'Hello, your otp is 112345.';
 
     // 6. Check Provider: In-House Android Gateway vs SMSGate Cloud
     const useInHouseGateway =
