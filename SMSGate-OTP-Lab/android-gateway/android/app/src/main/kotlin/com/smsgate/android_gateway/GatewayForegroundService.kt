@@ -1,30 +1,20 @@
 package com.smsgate.android_gateway
 
-import android.Manifest
-import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.telephony.SmsManager
-import android.telephony.SubscriptionInfo
-import android.telephony.SubscriptionManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -50,9 +40,6 @@ class GatewayForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_START = "ACTION_START_GATEWAY"
         const val ACTION_STOP = "ACTION_STOP_GATEWAY"
-
-        const val ACTION_BG_SENT = "com.smsgate.android_gateway.BG_SMS_SENT"
-        const val ACTION_BG_DELIVERED = "com.smsgate.android_gateway.BG_SMS_DELIVERED"
 
         const val PREFS_NAME = "FlutterSharedPreferences"
         const val KEY_BACKEND_URL = "flutter.backend_server_url"
@@ -86,9 +73,6 @@ class GatewayForegroundService : Service() {
     private var pollingTask: ScheduledFuture<*>? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
-    private var sentReceiver: BroadcastReceiver? = null
-    private var deliveredReceiver: BroadcastReceiver? = null
-
     private val inFlightTasks = Collections.synchronizedSet(HashSet<String>())
     private val dispatchedTasks = Collections.synchronizedSet(LinkedHashSet<String>())
 
@@ -101,7 +85,9 @@ class GatewayForegroundService : Service() {
         super.onCreate()
         Log.i(TAG, "GatewayForegroundService onCreate")
         createNotificationChannel()
-        registerSmsReceivers()
+
+        // Register the central SmsDispatcher broadcast receivers with RECEIVER_EXPORTED
+        SmsDispatcher.registerReceivers(this)
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
         wakeLock = powerManager?.newWakeLock(
@@ -209,7 +195,7 @@ class GatewayForegroundService : Service() {
             val url = URL(endpoint)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 25000 // 25s for Render cold start
+                connectTimeout = 25000 // 25s for Render cold start tolerance
                 readTimeout = 25000
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
@@ -231,7 +217,7 @@ class GatewayForegroundService : Service() {
                 val taskCount = tasksArray.length()
 
                 val statusMsg = if (taskCount > 0) {
-                    "Connected: Processed $taskCount OTP SMS task${if (taskCount > 1) "s" else ""}"
+                    "Connected: Processing $taskCount OTP SMS task${if (taskCount > 1) "s" else ""}"
                 } else {
                     "Connected: Polling ($backendUrl)"
                 }
@@ -316,20 +302,6 @@ class GatewayForegroundService : Service() {
         return clean
     }
 
-    private fun normalizePhoneNumber(rawNumber: String): String {
-        val cleaned = rawNumber.replace("[\\s\\-()]".toRegex(), "")
-        if (cleaned.matches("^[6-9]\\d{9}$".toRegex())) {
-            return "+91$cleaned"
-        }
-        if (cleaned.matches("^0[6-9]\\d{9}$".toRegex())) {
-            return "+91${cleaned.substring(1)}"
-        }
-        if (cleaned.matches("^91[6-9]\\d{9}$".toRegex())) {
-            return "+$cleaned"
-        }
-        return cleaned
-    }
-
     private fun dispatchSmsTask(
         taskId: String,
         rawPhone: String,
@@ -338,9 +310,10 @@ class GatewayForegroundService : Service() {
         backendUrl: String,
         deviceToken: String
     ) {
-        val targetPhone = normalizePhoneNumber(rawPhone)
-        Log.i(TAG, "Dispatching SMS task $taskId to $targetPhone via SIM $simSlot")
+        val targetPhone = SmsDispatcher.normalizePhoneNumber(rawPhone)
+        Log.i(TAG, "[GatewayForegroundService] Initiating dispatch for task $taskId to $targetPhone via SIM $simSlot")
 
+        // 1. Notify listeners that transmission is starting (Status: Sending, NOT Sent!)
         serviceListener?.onMessageDispatched(
             mapOf(
                 "id" to taskId,
@@ -351,181 +324,70 @@ class GatewayForegroundService : Service() {
                 "timestamp" to System.currentTimeMillis()
             )
         )
+        updateNotification("SMS Gateway Active • Dispatching OTP to $targetPhone...")
 
-        val hasPermission = ContextCompat.checkSelfPermission(
+        // 2. Delegate to SmsDispatcher which selects Airtel SIM and registers exported receivers
+        val submitted = SmsDispatcher.sendSMS(
             this,
-            Manifest.permission.SEND_SMS
-        ) == PackageManager.PERMISSION_GRANTED
+            taskId,
+            targetPhone,
+            message,
+            simSlot,
+            object : SmsDispatcher.SmsCallback {
+                override fun onSent(
+                    taskId: String,
+                    success: Boolean,
+                    resultCode: Int,
+                    errorCode: Int,
+                    errorMessage: String?
+                ) {
+                    inFlightTasks.remove(taskId)
+                    dispatchedTasks.add(taskId)
+                    if (dispatchedTasks.size > 500) {
+                        val first = dispatchedTasks.iterator().next()
+                        dispatchedTasks.remove(first)
+                    }
 
-        if (!hasPermission) {
-            Log.e(TAG, "Cannot dispatch SMS: SEND_SMS permission denied")
+                    if (success) {
+                        val status = "Sent"
+                        Log.i(TAG, "[GatewayForegroundService] Task $taskId CONFIRMED SENT by SMSC (resultCode=$resultCode)")
+                        serviceListener?.onStatusUpdate(taskId, status, null)
+                        reportStatus(taskId, status, null, backendUrl, deviceToken)
+                        updateNotification("SMS Gateway Active • Sent OTP to $targetPhone")
+                    } else {
+                        val status = "Failed"
+                        Log.e(TAG, "[GatewayForegroundService] Task $taskId FAILED (resultCode=$resultCode, errorCode=$errorCode): $errorMessage")
+                        serviceListener?.onStatusUpdate(taskId, status, errorMessage)
+                        reportStatus(taskId, status, errorMessage, backendUrl, deviceToken)
+                        updateNotification("SMS Gateway • Failed: $errorMessage")
+                    }
+                }
+
+                override fun onDelivered(
+                    taskId: String,
+                    success: Boolean,
+                    resultCode: Int,
+                    errorMessage: String?
+                ) {
+                    val status = if (success) "Delivered" else "DeliveryFailed"
+                    Log.i(TAG, "[GatewayForegroundService] Task $taskId DELIVERY report: $status")
+                    serviceListener?.onStatusUpdate(taskId, status, errorMessage)
+                    reportStatus(taskId, status, errorMessage, backendUrl, deviceToken)
+                    if (success) {
+                        updateNotification("SMS Gateway Active • Delivered OTP to $targetPhone")
+                    }
+                }
+            }
+        )
+
+        if (!submitted) {
             inFlightTasks.remove(taskId)
             dispatchedTasks.add(taskId)
-            reportStatus(taskId, "Failed", "SEND_SMS permission not granted on device", backendUrl, deviceToken)
-            return
-        }
-
-        try {
-            val smsManager = getSmsManagerForSlot(simSlot)
-
-            val sentIntent = Intent(ACTION_BG_SENT).apply {
-                putExtra("taskId", taskId)
-                putExtra("backendUrl", backendUrl)
-                putExtra("deviceToken", deviceToken)
-                setPackage(packageName)
-            }
-            val deliveredIntent = Intent(ACTION_BG_DELIVERED).apply {
-                putExtra("taskId", taskId)
-                putExtra("backendUrl", backendUrl)
-                putExtra("deviceToken", deviceToken)
-                setPackage(packageName)
-            }
-
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-
-            val sentPI = PendingIntent.getBroadcast(this, taskId.hashCode(), sentIntent, flags)
-            val deliveredPI = PendingIntent.getBroadcast(this, taskId.hashCode() + 1, deliveredIntent, flags)
-
-            val parts = smsManager.divideMessage(message)
-            if (parts.size > 1) {
-                val sentIntents = ArrayList<PendingIntent>()
-                val deliveredIntents = ArrayList<PendingIntent>()
-                for (i in parts.indices) {
-                    sentIntents.add(sentPI)
-                    deliveredIntents.add(deliveredPI)
-                }
-                smsManager.sendMultipartTextMessage(targetPhone, null, parts, sentIntents, deliveredIntents)
-            } else {
-                smsManager.sendTextMessage(targetPhone, null, message, sentPI, deliveredPI)
-            }
-            updateNotification("SMS Gateway Active • Sent OTP to $targetPhone")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send SMS: ${e.message}", e)
-            inFlightTasks.remove(taskId)
-            dispatchedTasks.add(taskId)
-            reportStatus(taskId, "Failed", e.localizedMessage ?: "Unknown SMS sending failure", backendUrl, deviceToken)
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun getSmsManagerForSlot(simSlot: Int): SmsManager {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
-            val subManager = getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE) as? SubscriptionManager
-            try {
-                val subList = subManager?.activeSubscriptionInfoList
-                if (!subList.isNullOrEmpty()) {
-                    for (info in subList) {
-                        if (info.simSlotIndex == simSlot) {
-                            return createSmsManagerForSub(info.subscriptionId)
-                        }
-                    }
-                    for (info in subList) {
-                        val carrier = info.carrierName?.toString() ?: ""
-                        val display = info.displayName?.toString() ?: ""
-                        if (carrier.contains("airtel", ignoreCase = true) || display.contains("airtel", ignoreCase = true)) {
-                            return createSmsManagerForSub(info.subscriptionId)
-                        }
-                    }
-                    val firstActive = subList.firstOrNull()
-                    if (firstActive != null) {
-                        return createSmsManagerForSub(firstActive.subscriptionId)
-                    }
-                }
-            } catch (_: SecurityException) {}
-        }
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(SmsManager::class.java)
-        } else {
-            SmsManager.getDefault()
-        }
-    }
-
-    private fun createSmsManagerForSub(subId: Int): SmsManager {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            getSystemService(SmsManager::class.java).createForSubscriptionId(subId)
-        } else {
-            @Suppress("DEPRECATION")
-            SmsManager.getSmsManagerForSubscriptionId(subId)
-        }
-    }
-
-    private fun registerSmsReceivers() {
-        sentReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val taskId = intent?.getStringExtra("taskId") ?: return
-                val backendUrl = intent.getStringExtra("backendUrl") ?: DEFAULT_BACKEND_URL
-                val deviceToken = intent.getStringExtra("deviceToken") ?: DEFAULT_DEVICE_TOKEN
-
-                inFlightTasks.remove(taskId)
-                dispatchedTasks.add(taskId)
-                if (dispatchedTasks.size > 500) {
-                    val first = dispatchedTasks.iterator().next()
-                    dispatchedTasks.remove(first)
-                }
-
-                val status: String
-                val errorMessage: String?
-
-                when (resultCode) {
-                    Activity.RESULT_OK -> {
-                        status = "Sent"
-                        errorMessage = null
-                    }
-                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> {
-                        status = "Failed"
-                        errorMessage = "Generic network failure or carrier block (verify Airtel SMS balance and active SIM slot)"
-                    }
-                    SmsManager.RESULT_ERROR_NO_SERVICE -> {
-                        status = "Failed"
-                        errorMessage = "No cellular network service available on SIM"
-                    }
-                    SmsManager.RESULT_ERROR_NULL_PDU -> {
-                        status = "Failed"
-                        errorMessage = "Null PDU (format rejected by SMSC)"
-                    }
-                    SmsManager.RESULT_ERROR_RADIO_OFF -> {
-                        status = "Failed"
-                        errorMessage = "Cellular radio is off or Airplane mode is active"
-                    }
-                    else -> {
-                        status = "Failed"
-                        errorMessage = "Unknown carrier error code: $resultCode"
-                    }
-                }
-
-                serviceListener?.onStatusUpdate(taskId, status, errorMessage)
-                reportStatus(taskId, status, errorMessage, backendUrl, deviceToken)
-            }
-        }
-
-        deliveredReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val taskId = intent?.getStringExtra("taskId") ?: return
-                val backendUrl = intent.getStringExtra("backendUrl") ?: DEFAULT_BACKEND_URL
-                val deviceToken = intent.getStringExtra("deviceToken") ?: DEFAULT_DEVICE_TOKEN
-
-                val status = if (resultCode == Activity.RESULT_OK) "Delivered" else "DeliveryFailed"
-                val errorMsg = if (resultCode == Activity.RESULT_OK) null else "Delivery report returned failure code $resultCode"
-
-                serviceListener?.onStatusUpdate(taskId, status, errorMsg)
-                reportStatus(taskId, status, errorMsg, backendUrl, deviceToken)
-            }
-        }
-
-        val sentFilter = IntentFilter(ACTION_BG_SENT)
-        val deliveredFilter = IntentFilter(ACTION_BG_DELIVERED)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(sentReceiver, sentFilter, Context.RECEIVER_NOT_EXPORTED)
-            registerReceiver(deliveredReceiver, deliveredFilter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(sentReceiver, sentFilter)
-            registerReceiver(deliveredReceiver, deliveredFilter)
+            val failStatus = "Failed"
+            val failMsg = "Failed to submit SMS to Android telephony subsystem"
+            serviceListener?.onStatusUpdate(taskId, failStatus, failMsg)
+            reportStatus(taskId, failStatus, failMsg, backendUrl, deviceToken)
+            updateNotification("SMS Gateway • Submission failed")
         }
     }
 
@@ -623,8 +485,6 @@ class GatewayForegroundService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "GatewayForegroundService onDestroy")
         isRunning = false
-        sentReceiver?.let { unregisterReceiver(it) }
-        deliveredReceiver?.let { unregisterReceiver(it) }
         executor?.shutdownNow()
         wakeLock?.let {
             if (it.isHeld) it.release()

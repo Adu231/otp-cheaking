@@ -34,7 +34,7 @@ const startServer = async () => {
   }
 
   // Start Express HTTP Server
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`[HTTP Server] Listening on http://localhost:${PORT}`);
     console.log(`[HTTP Server] Health check available at: http://localhost:${PORT}/api/health`);
     console.log('----------------------------------------------------');

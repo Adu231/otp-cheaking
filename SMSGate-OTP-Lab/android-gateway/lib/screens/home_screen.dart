@@ -426,9 +426,24 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         if (_simCards.isNotEmpty)
-                          Text(
-                            'SIM: ${_simCards[0]['carrierName'] ?? 'SIM 1'}',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textColor),
+                          Builder(
+                            builder: (context) {
+                              Map<String, dynamic>? activeSim;
+                              for (final s in _simCards) {
+                                if (s['isAirtel'] == true) {
+                                  activeSim = s;
+                                  break;
+                                }
+                              }
+                              activeSim ??= _simCards.firstWhere(
+                                (s) => s['slotIndex'] == widget.syncService.simSlot,
+                                orElse: () => _simCards.first,
+                              );
+                              return Text(
+                                'SIM: ${activeSim['carrierName']} (Slot ${activeSim['slotIndex']})',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textColor),
+                              );
+                            },
                           ),
                       ],
                     ),

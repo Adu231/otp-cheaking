@@ -244,32 +244,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Choose which SIM slot on this phone dispatches the outgoing OTP SMS. Airtel SIM is recommended.',
+                    'Choose which SIM slot on this phone dispatches outgoing OTP SMS. Active Airtel SIM is automatically prioritized.',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                   const SizedBox(height: 10),
-                  RadioListTile<int>(
-                    title: Text(
-                      widget.simCards.isNotEmpty
-                          ? 'SIM 1 (${widget.simCards[0]['carrierName'] ?? 'Slot 0'})'
-                          : 'SIM 1 (Default / Airtel)',
+                  if (widget.simCards.isNotEmpty)
+                    ...widget.simCards.map((sim) {
+                      final slot = sim['slotIndex'] as int? ?? 0;
+                      final carrier = sim['carrierName']?.toString() ?? 'Unknown';
+                      final display = sim['displayName']?.toString() ?? 'SIM ${slot + 1}';
+                      final isAirtel = sim['isAirtel'] as bool? ?? carrier.toLowerCase().contains('airtel');
+
+                      return RadioListTile<int>(
+                        title: Row(
+                          children: [
+                            Text('SIM ${slot + 1} ($carrier)'),
+                            if (isAirtel) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryColor.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'Airtel',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.primaryColor,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        subtitle: Text('Slot $slot • $display (SubId: ${sim['subscriptionId']})'),
+                        value: slot,
+                        groupValue: _selectedSimSlot,
+                        activeColor: AppTheme.primaryColor,
+                        onChanged: (val) => setState(() => _selectedSimSlot = val ?? slot),
+                      );
+                    })
+                  else ...[
+                    RadioListTile<int>(
+                      title: const Text('SIM 1 (Default / Auto-detect Airtel)'),
+                      value: 0,
+                      groupValue: _selectedSimSlot,
+                      activeColor: AppTheme.primaryColor,
+                      onChanged: (val) => setState(() => _selectedSimSlot = val ?? 0),
                     ),
-                    value: 0,
-                    groupValue: _selectedSimSlot,
-                    activeColor: AppTheme.primaryColor,
-                    onChanged: (val) => setState(() => _selectedSimSlot = val ?? 0),
-                  ),
-                  RadioListTile<int>(
-                    title: Text(
-                      widget.simCards.length > 1
-                          ? 'SIM 2 (${widget.simCards[1]['carrierName'] ?? 'Slot 1'})'
-                          : 'SIM 2',
+                    RadioListTile<int>(
+                      title: const Text('SIM 2'),
+                      value: 1,
+                      groupValue: _selectedSimSlot,
+                      activeColor: AppTheme.primaryColor,
+                      onChanged: (val) => setState(() => _selectedSimSlot = val ?? 1),
                     ),
-                    value: 1,
-                    groupValue: _selectedSimSlot,
-                    activeColor: AppTheme.primaryColor,
-                    onChanged: (val) => setState(() => _selectedSimSlot = val ?? 1),
-                  ),
+                  ],
                 ],
               ),
             ),
