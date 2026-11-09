@@ -49,7 +49,7 @@ class OTPService {
     await otpRecord.save();
 
     // 5. Construct required message text
-    const message = `Hello, your verification code is SMSMSD.`;
+    const message = `Hello, your verification code is ${rawOTP}.`;
 
     // 6. Check Provider: In-House Android Gateway vs SMSGate Cloud
     const useInHouseGateway =
