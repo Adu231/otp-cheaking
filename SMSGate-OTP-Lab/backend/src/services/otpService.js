@@ -49,7 +49,7 @@ class OTPService {
     await otpRecord.save();
 
     // 5. Construct required message text
-    const message = 'Hello, your otp is 112345.';
+    const message = `Hello, your verification code is ${rawOTP}.`;
 
     // 6. Check Provider: In-House Android Gateway vs SMSGate Cloud
     const useInHouseGateway =
@@ -173,13 +173,14 @@ class OTPService {
    * @returns {Promise<{ verified: boolean, message: string }>}
    */
   async verifyOTP(mobileNumber, inputOTP) {
-    if (!inputOTP || typeof inputOTP !== 'string' || inputOTP.trim().length !== 6) {
-      const err = new Error('Please enter a valid 6-digit OTP code.');
+    const cleanOTP =
+      inputOTP && typeof inputOTP === 'string' ? inputOTP.trim().toUpperCase() : '';
+
+    if (!cleanOTP || !/^[A-Z]{6}$/.test(cleanOTP)) {
+      const err = new Error('Please enter a valid 6-character OTP code (A-Z).');
       err.statusCode = 400;
       throw err;
     }
-
-    const cleanOTP = inputOTP.trim();
 
     // 1. Find the latest active OTP request
     const activeRequest = await OTPRequest.findOne({

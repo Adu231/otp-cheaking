@@ -43,10 +43,10 @@ const VerifyOTP = () => {
   }, [cooldown]);
 
   const handleOtpChange = (index, value) => {
-    // Only accept numeric digit
-    const cleaned = value.replace(/\D/g, '');
+    // Only accept uppercase English alphabet letters (A-Z), auto-convert lowercase to uppercase
+    const cleaned = value.toUpperCase().replace(/[^A-Z]/g, '');
 
-    // Handle paste of complete 6-digit code
+    // Handle paste of complete 6-letter code
     if (cleaned.length > 1) {
       const pasted = cleaned.slice(0, 6).split('');
       const newDigits = [...otpDigits];
@@ -64,7 +64,7 @@ const VerifyOTP = () => {
     setOtpDigits(newDigits);
     setErrorMessage('');
 
-    // Auto-focus next input box if digit entered
+    // Auto-focus next input box if letter entered
     if (cleaned && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
@@ -89,7 +89,7 @@ const VerifyOTP = () => {
     }
 
     if (fullOTP.length !== 6) {
-      setErrorMessage('Please enter all 6 digits of the OTP.');
+      setErrorMessage('Please enter all 6 letters of the OTP.');
       return;
     }
 
@@ -154,7 +154,7 @@ const VerifyOTP = () => {
       <div className="card">
         <h2 className="card-title">Verify Phone Number</h2>
         <p className="card-subtitle">
-          Enter the 6-digit verification code sent via SMSGate
+          Enter the 6-letter verification code sent via SMS
         </p>
 
         {maskedMobile && (
@@ -200,9 +200,10 @@ const VerifyOTP = () => {
                   key={idx}
                   ref={(el) => (inputRefs.current[idx] = el)}
                   type="text"
-                  inputMode="numeric"
+                  inputMode="text"
                   maxLength={1}
                   className="otp-box"
+                  style={{ textTransform: 'uppercase' }}
                   value={digit}
                   onChange={(e) => handleOtpChange(idx, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(idx, e)}

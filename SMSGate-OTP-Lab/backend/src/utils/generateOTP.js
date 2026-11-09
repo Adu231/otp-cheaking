@@ -1,14 +1,19 @@
 const crypto = require('crypto');
 
+const CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
 /**
- * Generate a cryptographically secure 6-digit numeric OTP.
- * Ranges from 100000 to 999999 inclusive.
- * @returns {string} 6-digit OTP string
+ * Generate a cryptographically secure 6-character alphabet-only OTP (A-Z).
+ * Contains only uppercase English letters, no numbers or special characters.
+ * @returns {string} 6-character uppercase alphabet OTP string
  */
 const generateOTP = () => {
-  const otpNumber = crypto.randomInt(100000, 1000000);
-  return otpNumber.toString();
+  let otp = '';
+  for (let i = 0; i < 6; i++) {
+    const randomIndex = crypto.randomInt(0, CHARSET.length);
+    otp += CHARSET[randomIndex];
+  }
+  return otp;
 };
 
 module.exports = generateOTP;
-
